@@ -1,0 +1,1 @@
+20 17 * * * python /home/ubuntu/DataSync/DownloadData.py 2>&1 | /usr/bin/logger -t datasync; python /home/ubuntu/DataSync/json2csv.py /home/ubuntu/DataSync/chopperui.json /home/ubuntu/DataSync/outline.json -o /home/ubuntu/DataSync/converted.csv 2>&1 | /usr/bin/logger -t datasync; python /home/ubuntu/DataSync/InsertCSV.py 2>&1 | /usr/bin/logger -t datasync

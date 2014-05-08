@@ -1,0 +1,3 @@
+[submodule "json2csv"]
+	path = json2csv
+	url = https://github.com/evidens/json2csv.git
