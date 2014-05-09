@@ -1,7 +1,7 @@
 LogglyExportTools
 =================
 
-Export events from Loggly and into various other systems
+Export events from Loggly and into various other systems.  The tools are designed to be chained together.  For example, to load events from Loggly into MySQL, first run DownloadJSON, then json2csv, the LoadCSVIntoSQL.  You can setup a cron to do this every day.
 
 **DownloadJSON** - Downloads one day worth of data from Loggly matching your query. You can download up to 5000 events at a time. It stores the data as JSON.
 >usage: DownloadJSON.py [-h] username password subdomain query outputFile
