@@ -16,6 +16,8 @@ def truncate(e):
     for k, v in e.items():
       e[k] = truncate(v)
     return e
+  else:
+    return e
 
 # convert loggly timestamp to mysql format
 def convertTimestamp(t):
@@ -43,7 +45,7 @@ print "Search string: " + search_url
 
 r = requests.get(search_url, auth=(args.username, args.password))
 rsid = r.json()['rsid']['id']
-
+print rsid
 total_events = 1
 page = 0
 data = ""
