@@ -7,29 +7,29 @@ __author__ = 'Mauricio Roman'
     This API has functions to grab more than 5000 results from the Loggly API
 """
 
-import json, csv, time, pytz
+import json, csv, time, pytz, traceback
 import re, math, sys
 import requests                                 # For REST API
 import urllib2, simplejson                      # For logging with Loggly
 from numpy import *
 import datetime
 
-def initiateSearch(subdomain, query, searchFrom, searchTo, username, password):
+def initiateSearch(accountFqdn, query, searchFrom, searchTo, username, password):
     """ Initiates the search, and returns a temporary ID """
 
     # We request results in pages of 500 events
     # We search in ascending order, so as to build a constantly growing timeline
-    search_url = ("https://" + subdomain + ".loggly.com/apiv2/search?q=" + query + "&from=" +
+    search_url = ("https://" + accountFqdn + "/apiv2/search?q=" + query + "&from=" +
                    str(searchFrom) + "&until=" + str(searchTo) + "&order=asc&size=500")
 
-    print "Search URL: " + search_url
+    # print "Search URL: " + search_url
 
     # We launch the search
-    r = requests.get(search_url, auth=(username, password), timeout=60)
+    r = requests.get(search_url, auth=(username, password), timeout=60, verify=False)
 
     try:
         rsid = r.json()['rsid']['id']
-	print "rsid: " + str(rsid)
+	# print "rsid: " + str(rsid)
 
     except ValueError:
         print "Error obtaining data"
@@ -38,7 +38,7 @@ def initiateSearch(subdomain, query, searchFrom, searchTo, username, password):
     return rsid
 
 
-def fetchResults(subdomain, rsid, username, password, newFile, formatFunc, jsonFlag):
+def fetchResults(accountFqdn, rsid, username, password, newFile, formatFunc, jsonFlag):
     """ Collects the results from a search that was initialized, one page at a time, and returns the entire list
         As one of its inputs, it requires a formatting function, located in the queryFormat module
     """
@@ -54,7 +54,7 @@ def fetchResults(subdomain, rsid, username, password, newFile, formatFunc, jsonF
 
     while(page * page_size < min(total_events, max_events)):
 
-        results_url = "http://" + subdomain + ".loggly.com/apiv2/events"
+        results_url = "http://" + accountFqdn + "/apiv2/events"
         url_params = {'rsid':str(rsid),'page':str(page)}
 
         retries = 0
@@ -62,7 +62,7 @@ def fetchResults(subdomain, rsid, username, password, newFile, formatFunc, jsonF
         resp2 = ""
 
         while(retries < 5):
-            r = requests.get(results_url, params=url_params, auth=(username, password), timeout=300)
+            r = requests.get(results_url, params=url_params, auth=(username, password), timeout=300, verify=False)
 
             try:
 
@@ -74,13 +74,21 @@ def fetchResults(subdomain, rsid, username, password, newFile, formatFunc, jsonF
                     resp2 = formatFunc(resp1)
                 except KeyError:
                     raise ValueError('invalid input for format function')
-                #print resp2
 
                 newFile = 0
                 break
 
-            except ValueError:
-                print "Error status code: " + str(r.status_code) + " msg: " + r.text
+            except ValueError as e:
+		exc_type, exc_value, exc_traceback = sys.exc_info()
+   		print "*** print_tb:"
+    		traceback.print_tb(exc_traceback, file=sys.stdout)
+
+		text = ""
+		if(len(r.text) > 128):
+		   text = r.text[0:127]
+		else:
+		   text = r.text
+                print "Error status code: " + str(e) + " " + str(r.status_code) + " " + str(text)
                 retries = retries + 1
         # End Inner While Loop
 
@@ -105,7 +113,7 @@ def fetchResults(subdomain, rsid, username, password, newFile, formatFunc, jsonF
             # Upper bound on events loaded...
             events_loaded = len(d['events'])
         else:
-            for e in resp2:
+            for e in resp2['events']:
                 d.append(e)
             # Exact number of events loaded
             events_loaded = len(d)
@@ -119,7 +127,7 @@ def fetchResults(subdomain, rsid, username, password, newFile, formatFunc, jsonF
 
 def getSearch(query, formatFunc, searchFrom_init, searchToFinal, step,
               outputFile, newFile, jsonFlag,
-              subdomain, username, password, loggly_key = None):
+              accountFqdn, username, password, loggly_key = None):
     """ Collects search results in several steps, adjusting the time step dynamically """
 
     session_id = int(round(time.time() * 1000))
@@ -133,6 +141,9 @@ def getSearch(query, formatFunc, searchFrom_init, searchToFinal, step,
     # If writing to CSV, open file as CSV
     if not jsonFlag:
         wr = csv.writer(f)
+    else:
+	totalData = {}
+	totalData['events'] = []
 
     i = 0
 
@@ -148,14 +159,14 @@ def getSearch(query, formatFunc, searchFrom_init, searchToFinal, step,
 
     print "step, total events, events loaded"
 
-    while searchTo[i] <= searchToFinal:
+    while searchTo[i] <= searchToFinal and searchTo[i] != searchFrom[i]:
 
-    	rsid = initiateSearch(subdomain, query, searchFrom[i], searchTo[i],
+    	rsid = initiateSearch(accountFqdn, query, searchFrom[i], searchTo[i],
                               username, password)
 
         if rsid > 0:
             newFile = 0
-            ([x1, x2], data) = fetchResults(subdomain, rsid, username, password, newFile, formatFunc, jsonFlag)
+            ([x1, x2], data) = fetchResults(accountFqdn, rsid, username, password, newFile, formatFunc, jsonFlag)
 
             total_events.append(x1)
             events_loaded.append(x2)
@@ -164,23 +175,24 @@ def getSearch(query, formatFunc, searchFrom_init, searchToFinal, step,
             print str(i) + "," + str(total_events[i]) + "," + str(events_loaded[i])
 
             # We only write to file if the total events returned is less than the limit
-            write_flag = (total_events[i] <= events_loaded[i])
+	    write_flag = (total_events[i] <= events_loaded[i])
 
             # We log the query results, before changing the search from and to parameters
             if loggly_key is not None:
  	    	logQuery(loggly_key, session_id, searchFrom[i], searchTo[i], events_loaded[i], total_events[i], write_flag, i)
 
             # Calculate the time step dynamically based on previous data
-            delta_step.append(getTimeStep(searchFrom, searchTo, total_events, write_flag, i))
+            delta_step.append(getTimeStep(searchFrom, searchTo, searchToFinal, total_events, write_flag, i, step))
 
             # Write only if we get all the records that we asked for, as there is no guarantee that, if we receive
             # a subset of all records, that they will start at the SearchFrom time
             if(write_flag):
 		if jsonFlag:
-		    f.write(json.dumps(data))
-		else:
+		    for e in data['events']:
+			totalData['events'].append(e)
+ 		else:
                     for item in data:
-                        wr.writerow(item)
+			wr.writerow(item)
 
                 searchFrom.append(searchTo[i])
             else:
@@ -188,7 +200,7 @@ def getSearch(query, formatFunc, searchFrom_init, searchToFinal, step,
 
             #endif
             searchTo.append(searchFrom[i+1] + datetime.timedelta(0,delta_step[i+1]))
-
+	    
         else:
             print "Could not initiate search...exiting"
             break
@@ -196,12 +208,16 @@ def getSearch(query, formatFunc, searchFrom_init, searchToFinal, step,
         time.sleep(3)   # Pause a few seconds so that we do not overwhelm Loggly servers
         i += 1
 
+    if jsonFlag:
+      print "Total Events: " + str(len(totalData['events']))
+      f.write(json.dumps(totalData))
+
+    f.close()
+
     return delta_step.pop()
 
-    f.closed
 
-
-def getTimeStep(searchFrom, searchTo, total_events, write_flag, count):
+def getTimeStep(searchFrom, searchTo, searchToFinal, total_events, write_flag, count, step):
     """ Calculates time step...taking the latest history into account
         The API returns 5000 records maximum, and there is no guarantee that
         these will be time aligned with the initial time requested. For simplicity,
@@ -221,13 +237,26 @@ def getTimeStep(searchFrom, searchTo, total_events, write_flag, count):
     avg = average(vel)
     std_dev = std(vel)
 
+    if(avg + std_dev == 0):
+        return step
+
     #If we failed in our previous estimation, use the point velocity measure plus one std. dev.
     if not write_flag:
         delta_sec = max_events / (vel[-1:] + std_dev)
+ 	
+	# if we are not writing, the max time step can't be more than than the final time minus the current from
+    	maxDelta = (searchToFinal - searchFrom[count]).total_seconds()
+    	if(int(asscalar(delta_sec)) > maxDelta):
+            return maxDelta
 
     #Otherwise, let us just use the average plus one std. dev.
     else:
         delta_sec = max_events / (avg + std_dev)
+
+    	# if we are writing, the max time step can't be more than the final minus the current to, which will become the new from time
+    	maxDelta = (searchToFinal - searchTo[count]).total_seconds()
+    	if(int(asscalar(delta_sec)) > maxDelta):
+            return maxDelta
 
     return asscalar(delta_sec)
 

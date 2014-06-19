@@ -1,13 +1,19 @@
-import datetime
+import datetime, re, urllib
 
-# truncate field values to 128 characters so they fit in varchar columns
-def truncate(e):
+# scrub special chars  so conversion to CSV works correctly
+def scrubSpecialChars(e):
   if((type(e) == type(str())) | (type(e) == type(unicode()))):
-    return e[0:127]
+    if((type(e) == type(str())) & ('%' in str(e))):
+    	e = urllib.unquote(e).decode('utf-8')
+    return re.sub('[,"\'\n\r\t\\\\]', ' ', e)
   elif(type(e) == type(dict())):
     for k, v in e.items():
-      e[k] = truncate(v)
+      e[k] = scrubSpecialChars(v)
     return e
+  elif(type(e) == type(list())):
+    for i in range(len(e)):
+	e[i] = scrubSpecialChars(e[i])
+    return e 
   else:
     return e
 
@@ -24,6 +30,5 @@ def formatForDB(e):
   for i in range(0, len(e['events'])):
     en = e['events'][i]
     en['timestamp'] = convertTimestamp(en['timestamp'])
-    e['events'][i] = truncate(en)
-  print e  
+    e['events'][i] = scrubSpecialChars(en)
   return e

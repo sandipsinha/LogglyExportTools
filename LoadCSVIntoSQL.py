@@ -13,7 +13,7 @@ db=MySQLdb.connect(host=args.host, user=args.username, passwd=args.password,db=a
 
 sql = """load data local infile '""" + args.inputFile + "\' " + \
 "into table " + args.table + " " + \
-"""FIELDS TERMINATED BY ','
+"""FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
 lines TERMINATED BY '\n'
 IGNORE 1 LINES;"""
 
